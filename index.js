@@ -4,38 +4,57 @@ const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion } = require('mongodb');
 const app = express();
 
-// MongoDB bağlantı URI'si
-const uri = "mongodb+srv://hyrllh1414:<db_password>@cluster0.6ey7g.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
-const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  }
-});
+// HealthSync cluster'ına bağlantı URI'si
+const uri = "mongodb+srv://hyrllh1414:<LoWNCEobMb3X3rMI>@cluster0.6ey7g.mongodb.net/Health_db?retryWrites=true&w=majority";
 
-// MongoDB koleksiyonları için referanslar
-let db;
-let users;
-let exercises;
-let nutrition;
-let tokens;
+let cachedClient = null;
+let cachedDb = null;
 
-// MongoDB bağlantısını başlat
 async function connectToDatabase() {
+  if (cachedClient && cachedDb) {
+    return { client: cachedClient, db: cachedDb };
+  }
+
+  const client = new MongoClient(uri, {
+    serverApi: {
+      version: ServerApiVersion.v1,
+      strict: true,
+      deprecationErrors: true,
+    }
+  });
+
   try {
     await client.connect();
-    db = client.db("healthsync");
-    users = db.collection("users");
-    exercises = db.collection("exercises");
-    nutrition = db.collection("nutrition");
-    tokens = db.collection("tokens");
-    console.log("MongoDB'ye başarıyla bağlanıldı!");
+    const db = client.db("Health_db"); // Health_db veritabanına bağlan
+    
+    // Koleksiyonları kontrol et ve yoksa oluştur
+    const collections = await db.listCollections().toArray();
+    const collectionNames = collections.map(col => col.name);
+
+    if (!collectionNames.includes('user')) {
+      await db.createCollection('user');
+    }
+    if (!collectionNames.includes('tokens')) {
+      await db.createCollection('tokens');
+    }
+    if (!collectionNames.includes('exercises')) {
+      await db.createCollection('exercises');
+    }
+    if (!collectionNames.includes('nutrition')) {
+      await db.createCollection('nutrition');
+    }
+    
+    console.log('MongoDB bağlantısı başarılı - HealthSync/Cluster0/Health_db');
+    
+    cachedClient = client;
+    cachedDb = db;
+    
+    return { client, db };
   } catch (error) {
     console.error("MongoDB bağlantı hatası:", error);
+    throw error;
   }
 }
-connectToDatabase();
 
 app.use(cors({
   origin: '*',
@@ -47,12 +66,64 @@ app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'health_sync_secret_key';
 
+// Register endpoint
+app.post('/auth/register', async (req, res) => {
+  try {
+    const { email, password, name, height, weight, age } = req.body;
+    const { db } = await connectToDatabase();
+    
+    // user collection'da email kontrolü
+    const existingUser = await db.collection('user').findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Email already exists' });
+    }
+    
+    const user = {
+      email,
+      name,
+      height,
+      weight,
+      age,
+      created_at: new Date().toISOString()
+    };
+    
+    // user collection'a kayıt
+    const result = await db.collection('user').insertOne(user);
+    
+    const payload = {
+      user_id: result.insertedId.toString(),
+      email: email,
+      roles: ["user"],
+      exp: Math.floor(Date.now() / 1000) + (60 * 60)
+    };
+    
+    const token = jwt.sign(payload, JWT_SECRET);
+    const refreshToken = jwt.sign({ user_id: result.insertedId.toString() }, JWT_SECRET);
+    
+    const response = {
+      user_id: result.insertedId.toString(),
+      email,
+      token: token,
+      refresh_token: refreshToken,
+      profile: { ...user, id: result.insertedId }
+    };
+    
+    await db.collection('tokens').insertOne({ token, ...response });
+    console.log('Yeni kullanıcı kaydedildi:', email);
+    res.json(response);
+  } catch (error) {
+    console.error('Register error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Login endpoint
 app.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+    const { db } = await connectToDatabase();
     
-    const user = await users.findOne({ email });
+    const user = await db.collection('user').findOne({ email });
     if (!user) {
       return res.status(401).json({ message: 'User not found' });
     }
@@ -82,7 +153,8 @@ app.post('/auth/login', async (req, res) => {
       }
     };
     
-    await tokens.insertOne({ token, ...response });
+    await db.collection('tokens').insertOne({ token, ...response });
+    console.log('Kullanıcı giriş yaptı:', email);
     res.json(response);
   } catch (error) {
     console.error('Login error:', error);
@@ -90,51 +162,36 @@ app.post('/auth/login', async (req, res) => {
   }
 });
 
-// Register endpoint
-app.post('/auth/register', async (req, res) => {
+// Token yenileme endpoint'i
+app.post('/auth/refresh', async (req, res) => {
   try {
-    const { email, password, name, height, weight, age } = req.body;
+    const { refresh_token } = req.body;
+    const { db } = await connectToDatabase();
+
+    const decoded = jwt.verify(refresh_token, JWT_SECRET);
+    const user = await db.collection('user').findOne({ _id: decoded.user_id });
     
-    // Email kontrolü
-    const existingUser = await users.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: 'Email already exists' });
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
     }
     
-    const user = {
-      email,
-      name,
-      height,
-      weight,
-      age,
-      created_at: new Date().toISOString()
-    };
-    
-    const result = await users.insertOne(user);
-    
     const payload = {
-      user_id: result.insertedId.toString(),
-      email: email,
+      user_id: user._id.toString(),
+      email: user.email,
       roles: ["user"],
       exp: Math.floor(Date.now() / 1000) + (60 * 60)
     };
     
     const token = jwt.sign(payload, JWT_SECRET);
-    const refreshToken = jwt.sign({ user_id: result.insertedId.toString() }, JWT_SECRET);
+    const newRefreshToken = jwt.sign({ user_id: user._id.toString() }, JWT_SECRET);
     
-    const response = {
-      user_id: result.insertedId.toString(),
-      email,
-      token: token,
-      refresh_token: refreshToken,
-      profile: { ...user, id: result.insertedId }
-    };
-    
-    await tokens.insertOne({ token, ...response });
-    res.json(response);
+    res.json({
+      token,
+      refresh_token: newRefreshToken
+    });
   } catch (error) {
-    console.error('Register error:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Token yenileme hatası:', error);
+    res.status(401).json({ message: 'Invalid refresh token' });
   }
 });
 
@@ -144,7 +201,9 @@ app.post('/exercises', async (req, res) => {
     const { user_id, name, duration, calories_burned } = req.body;
     const token = req.headers.authorization?.split(' ')[1];
     
-    const tokenDoc = await tokens.findOne({ token });
+    const { db } = await connectToDatabase();
+    const tokenDoc = await db.collection('tokens').findOne({ token });
+    
     if (!token || !tokenDoc) {
       return res.status(401).json({ message: 'Unauthorized' });
     }
@@ -157,70 +216,12 @@ app.post('/exercises', async (req, res) => {
       date: new Date().toISOString()
     };
     
-    const result = await exercises.insertOne(exercise);
+    const result = await db.collection('exercises').insertOne(exercise);
+    console.log('Yeni egzersiz kaydedildi:', name);
     res.json({ ...exercise, id: result.insertedId });
   } catch (error) {
     console.error('Exercise error:', error);
     res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Nutrition endpoint
-app.post('/nutrition', async (req, res) => {
-  try {
-    const { user_id, food_name, calories, protein, carbs, fat } = req.body;
-    const token = req.headers.authorization?.split(' ')[1];
-    
-    const tokenDoc = await tokens.findOne({ token });
-    if (!token || !tokenDoc) {
-      return res.status(401).json({ message: 'Unauthorized' });
-    }
-    
-    const nutritionEntry = {
-      user_id,
-      food_name,
-      calories,
-      protein,
-      carbs,
-      fat,
-      consumed_at: new Date().toISOString()
-    };
-    
-    const result = await nutrition.insertOne(nutritionEntry);
-    res.json({ ...nutritionEntry, id: result.insertedId });
-  } catch (error) {
-    console.error('Nutrition error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Token yenileme endpoint'i
-app.post('/auth/refresh', async (req, res) => {
-  try {
-    const { refresh_token } = req.body;
-    const decoded = jwt.verify(refresh_token, JWT_SECRET);
-    
-    const user = await users.findOne({ _id: decoded.user_id });
-    if (!user) {
-      return res.status(401).json({ message: 'User not found' });
-    }
-    
-    const payload = {
-      user_id: user._id.toString(),
-      roles: ["user"],
-      exp: Math.floor(Date.now() / 1000) + (60 * 60)
-    };
-    
-    const newToken = jwt.sign(payload, JWT_SECRET);
-    const newRefreshToken = jwt.sign({ user_id: user._id.toString() }, JWT_SECRET);
-    
-    res.json({
-      token: newToken,
-      refresh_token: newRefreshToken
-    });
-  } catch (error) {
-    console.error('Refresh token error:', error);
-    res.status(401).json({ message: 'Invalid refresh token' });
   }
 });
 
@@ -232,11 +233,4 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  await client.close();
-  process.exit();
-});
-
-module.exports = app;
 module.exports = app;
