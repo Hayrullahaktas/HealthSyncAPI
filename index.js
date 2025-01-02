@@ -5,7 +5,7 @@ const { MongoClient, ServerApiVersion } = require('mongodb');
 const app = express();
 
 // MongoDB bağlantı URI'si
-const uri = process.env.MONGODB_URI || "mongodb+srv://hyrllh1414:<LoWNCEobMb3X3rMI>@cluster0.6ey7g.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+const uri = "mongodb+srv://hyrllh1414:<db_password>@cluster0.6ey7g.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -238,4 +238,5 @@ process.on('SIGINT', async () => {
   process.exit();
 });
 
+module.exports = app;
 module.exports = app;
