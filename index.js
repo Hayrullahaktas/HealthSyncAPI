@@ -4,10 +4,15 @@ const jwt = require('jsonwebtoken');  // JWT için gerekli
 const app = express();
 const port = 3000;
 
-app.use(cors());
+app.use(cors({
+  origin: '*', // In production, replace with your frontend domain
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 
-const JWT_SECRET = 'health_sync_secret_key';  // JWT için secret key
+const JWT_SECRET = process.env.JWT_SECRET || 'health_sync_secret_key';
 
 // Mock database
 const mockDb = {
@@ -166,6 +171,17 @@ app.post('/nutrition', (req, res) => {
  res.json(nutrition);
 });
 
-app.listen(port, () => {
- console.log(`Mock API sunucusu http://localhost:${port} adresinde çalışıyor`);
-});
+// app.listen(port, () => {
+//  console.log(`Mock API sunucusu http://localhost:${port} adresinde çalışıyor`);
+// });
+
+
+if (process.env.NODE_ENV !== 'production') {
+  const port = process.env.PORT || 3000;
+  app.listen(port, () => {
+    console.log(`Development server running on port ${port}`);
+  });
+}
+
+// Export the app for Vercel
+module.exports = app;
