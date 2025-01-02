@@ -6,7 +6,8 @@ const app = express();
 
 // HealthSync cluster'ına bağlantı URI'si
 // const uri = "mongodb+srv://hyrllh1414:<LoWNCEobMb3X3rMI>@cluster0.6ey7g.mongodb.net/Health_db?retryWrites=true&w=majority";
-const uri = "mongodb+srv://hyrllh1414:<LoWNCEobMb3X3rMI>@cluster0.6ey7g.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+// const uri = "mongodb+srv://hyrllh1414:<LoWNCEobMb3X3rMI>@cluster0.6ey7g.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+const uri = 'mongodb+srv://mebua2001:Bursa.2001@mebua.79c6uai.mongodb.net/?retryWrites=true&w=majority';
 
 let cachedClient = null;
 let cachedDb = null;
