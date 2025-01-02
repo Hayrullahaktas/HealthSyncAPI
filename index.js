@@ -5,7 +5,8 @@ const { MongoClient, ServerApiVersion } = require('mongodb');
 const app = express();
 
 // HealthSync cluster'ına bağlantı URI'si
-const uri = "mongodb+srv://hyrllh1414:<LoWNCEobMb3X3rMI>@cluster0.6ey7g.mongodb.net/Health_db?retryWrites=true&w=majority";
+// const uri = "mongodb+srv://hyrllh1414:<LoWNCEobMb3X3rMI>@cluster0.6ey7g.mongodb.net/Health_db?retryWrites=true&w=majority";
+const uri = "mongodb+srv://hyrllh1414:<LoWNCEobMb3X3rMI>@cluster0.6ey7g.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 
 let cachedClient = null;
 let cachedDb = null;
